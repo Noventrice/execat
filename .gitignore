@@ -1,4 +1,3 @@
-#./.git/info/exclude contains .gitignore
 allheads
 allheads.1.gz
 names.txt
