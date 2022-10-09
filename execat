@@ -11,12 +11,15 @@
 ###This would be any program with scanf, for example.
 ###When $P is empty,
 ###stdin will close after the source code was read.
-###When P= C runs ./a.out,
+###When P= execat runs ./a.out,
 ###you will be unable to write anything to a.out,
 ###because stdin is closed.
-###You could, however, run ./a.out manually after P= C -n.
+###You could, however, run ./a.out manually after P= execat -n.
 	###Mixing code and uncoded input is a flawed concept.
-
+###
+###GOTCHA:
+###Similarly, the -he and -hE flags don't work well with code redirection.
+###The editor will get the redirected code instead of the compiler.
 
 ##Environmental variables:
 ##In terms of make:
