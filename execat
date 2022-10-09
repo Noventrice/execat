@@ -1,0 +1,271 @@
+#!/bin/bash
+
+###Inspired from 21st Century C 2nd Ed., pg. 31.
+	###ISBN: 978-1-491-90389-6
+###The page itself was inspired by c99sh.
+	###https://github.com/RhysU/c99sh
+
+###GOTCHA:
+###If your compiled program reads stdin,
+###then you should define $P.
+###This would be any program with scanf, for example.
+###When $P is empty,
+###stdin will close after the source code was read.
+###When P= C runs ./a.out,
+###you will be unable to write anything to a.out,
+###because stdin is closed.
+###You could, however, run ./a.out manually after P= C -n.
+	###Mixing code and uncoded input is a flawed concept.
+
+
+##Environmental variables:
+##In terms of make:
+	##LINK is LDLIBS & LDFLAGS
+	##CEXTRA is CFLAGS.
+##It is important that the names are different from make,
+##so that they don't disturb make.
+##CC being the same name shouldn't be much of a problem.
+vars=(P CC ALLHEADS W O G STD LINK CEXTRA OBJS DEBUG EDITOR); #COMP
+
+P="${P%*.c}";
+: "${CC:=clang}";
+: "${ALLHEADS:="$HOME/.allheads.h"}"; #Keep ALL in the name.
+: "${W:=-Wall -Wextra -Wpedantic}";
+: "${O:=3}";
+: "${G:=gdb3}";
+#clang doesn't support c18 (& gcc does),
+#but gcc & clang both support c17.
+: "${STD:=c17}";
+
+: "${LINK=}";
+: "${OBJS:=}";
+
+: "${DEBUG:=gdb}";
+: "${EDITOR:=vim}";
+
+#$CC -s removes the symbol table: optional feature?
+#-fsanitize-address #Maybe?
+
+: "${CEXTRA:=}";
+#COMP should not be inherited from the environment.
+#Assign it to () here to be sure.
+COMP=();
+
+
+##Non-environmental variables:
+declare bin= P_def=;
+declare {vars,get{,_var},obj,quiet}_opt=;
+declare -a libs=();
+#main_opts is an array of flags, by name, for gen_main.
+#main_opts also contains the args for the flags.
+declare -a main_opts=();
+
+
+##Opts:
+die(){
+	printf '%s: %s\n' "${0##*/}" "$1" >&2;
+	exit 1;
+}
+
+include(){
+	if [ "${1:0:1}" = ':' ];then
+		#Maybe don't assume .h in the future?
+		printf -- '#include "%s.h"\n' "${1:1}";
+	else
+		printf -- '#include <%s.h>\n' "$1";
+	fi
+}
+
+
+[ -z "$P" ] || [ "$P" = '-' ]; P_def="$?";
+
+
+while getopts ':vg:h:mp:s:cnd0xql:' name "$@";do
+	case "$name" in
+	v) vars_opt='set';;
+	g)
+		for i in "${vars[@]}" COMP;do
+			if [ "$i" = "$OPTARG" ];then
+				get_var_opt='set';
+				#$OPTARG may be "",
+				#so both get_var_opt & get_var are needed.
+				declare -n get_var="$OPTARG";
+				break;
+			fi
+		done
+		[ "$i" != "$OPTARG" ] && die "\$$OPTARG is not an internal variable name.";
+		;;
+	h)
+		word_index=$((OPTIND - 1));
+		word="${!word_index}";
+		start=1;
+		while [ "${word:start++:1}" != "$name" ];do :;done
+		for((i=start; i<${#word}; ++i));do
+			cmd="${word:i:1}";
+			case "${cmd,}" in
+			d) cat "$ALLHEADS";;
+			e)
+				if [ -t 0 ];then
+					command "$EDITOR" "$ALLHEADS";
+				else
+					printf "%s -he can't be used with redirection.\n" "$0";
+				fi
+				;;
+			s) include 'stdio' >| "$ALLHEADS" ||
+				die "Couldn't write to $ALLHEADS";;
+			a)
+				next_opt="${!OPTIND}";
+				((++OPTIND));
+				[ -z "$next_opt" ] && die "Usage: -h a <libs>";
+				IFS=',' read -a heads <<<"$next_opt";
+
+				for heads in "${heads[@]}";do
+					include "$heads" >> "$ALLHEADS" ||
+						die "Couldn't write to $ALLHEADS";
+				done
+				;;
+			*) die "Invalid command (${cmd}) for -$name";;
+			esac
+			[ "${cmd,}" != "$cmd" ] && exit 0;
+			[ "${cmd,}" = 'a' ] && break;
+		done
+		;;
+	m)
+		(($P_def)) && die "\$P must be undefined when -$name is used.";
+		[ "${main_opts[0]}" != m ] && main_opts=(m);
+		;;
+	s|p)
+		(($P_def)) && die "\$P must be undefined when -$name is used.";
+		if [ "${#main_opts[@]}" -eq 0 ];then
+			main_opts=(m "$name" "$OPTARG");
+		else
+			main_opts+=("$name" "$OPTARG");
+		fi
+		;;
+	c)
+		(($P_def)) || die "\$P must be set when -$name is used.";
+		obj_opt='.o' CEXTRA+=' -c';
+		;&
+	### FALLTHROUGH ### -c implies -n.
+	n) bin=:;;
+	0) O=0 bin="$DEBUG";;
+	d) O=g bin="$DEBUG";;
+	#Don't export COMP.
+	x) printf 'export %s\n' "${vars[*]}"; exit 0;;
+	q) quiet_opt='set';;
+	l)
+		_IFS="$IFS";
+		IFS=',';
+		libs+=($OPTARG);
+		IFS="$_IFS";
+		(($P_def)) && die "\$P must be undefined when -$name is used.";
+		;;
+	:) die "-$OPTARG requires an argument.";;
+	?) die "-$OPTARG is not a valid option.";;
+	esac
+done
+
+
+##P:
+if (($P_def));then
+	: "${bin:="./$P"}";
+	COMP=("$CC" -std="$STD" $LINK "-g$G" $W "-O$O" $CEXTRA $OBJS "$P.c" -o "$P$obj_opt");
+else
+	: "${bin:=./a.out}";
+	#Don't include $OBJS for now. Let's see how that goes.
+	COMP=("$CC" -std="$STD" -xc - $LINK "-g$G" $W "-O$O" $CEXTRA -include "$ALLHEADS");
+fi
+
+##-v & -g:
+if [ -n "$vars_opt" ];then
+	printf -- '########### Initial ###########\n';
+	declare -p "${vars[@]}";
+fi
+
+if [ -n "$vars_opt" ];then
+	printf -- '########### Command ###########\n';
+	declare -p COMP;
+	exit 0;
+fi
+
+if [ -n "$get_var_opt" ];then
+	printf '%s\n' "${get_var[*]}";
+	exit;
+fi
+
+
+
+##Shifts:
+##Nothing has been shifted out yet.
+c=0;
+for arg;do
+	((++c));
+	[ "$arg" = -- ] && break;
+done
+shift "$c";
+[ "$bin" == "$DEBUG" ] && [ "${@: -1}" != "$P" ] &&
+	#Set debugger options.
+	set -- "$@" "$P";
+
+##$COMP on stderr:
+if [ -z "$quiet_opt" ];then
+	#set -x output replaces '&&' w/ \n.
+	#set -v doesn't expand variables.
+	#So, use printf.
+	printf '%s && %q %s\n' "${COMP[*]}" "$bin" "$*" >&2;
+	#If you are going to run the program,
+	#then put some space between the
+	#compile debug string and the output of the program.
+	[ "$bin" != : ] && printf '\n' >&2;
+fi
+
+
+##Compile:
+#gen_main makes the source file based on options given to this script.
+#Each option encapsulates your input.
+#When gen_main shifts out all its args, it will run cat.
+gen_main(){
+	if [ "$#" = 0 ];then
+		cat -;
+		return;
+	fi
+
+	while [ "$#" != 0 ];do
+		case "$1" in
+		m)
+			shift;
+			#If argv and/or argc are left unused,
+			#then a warning would appear.
+			#So, (void)argc; (void)argv;
+			#They are on their own line so that the compiler
+			#doesn't mention the void casts...
+			#when the 1st line of your code causes an error.
+			#Memo: C2X has a [[maybe_unused]] attrib.
+			cat <<-!
+				int main(int argc, char **argv){
+					(void)argc; (void)argv;
+					$(gen_main "$@")
+				}
+			!
+			return 0;
+			;;
+		p) printf 'printf(%s);\n' "$2";;
+		s) printf 'printf("%%zd\\n", sizeof(%s));\n' "$2";;
+		esac
+		shift 2;
+	done
+}
+
+if (($P_def));then
+	"${COMP[@]}" && "$bin" "$@";
+else
+	{
+		for l in "${libs[@]}";do
+			include "$l";
+		done
+		gen_main "${main_opts[@]}";
+	} |
+		command "${COMP[@]}" &&
+			command "$bin" "$@";
+fi
+
