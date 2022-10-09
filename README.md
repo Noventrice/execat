@@ -11,9 +11,9 @@ $ execat -s long
 Or, maybe you want to make sure the following code will multiply the dereferenced pointer instead of dereferencing it twice.
 ```
 $ execat -m <<EOF
->    char *s="\n"; //'\n' = 10
->    printf("%d\n", 5 * *p);
->EOF
+>   char *s="\n"; //'\n' = 10
+>   printf("%d\n", 5 * *p);
+> EOF
 ```
 
 If you want to compile a simple program from a file you can run this:
