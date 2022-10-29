@@ -47,9 +47,12 @@ P="${P%*.c}";
 : "${EDITOR:=vim}";
 
 #$CC -s removes the symbol table: optional feature?
-#-fsanitize-address #Maybe?
+#-fsanitize=address #Maybe?
+	#Sanitizer options can have unintended consequences.
+	#Such as disabling ABI compatibility. Source:
+	#https://developers.redhat.com/blog/2018/03/21/compiler-and-linker-flags-gcc
 
-: "${CEXTRA:=}";
+: "${CEXTRA:=-pipe}";
 #COMP should not be inherited from the environment.
 #Assign it to () here to be sure.
 COMP=();
@@ -59,8 +62,7 @@ COMP=();
 declare bin= P_def=;
 declare {vars,get{,_var},obj,quiet}_opt=;
 declare -a libs=();
-#main_opts is an array of flags, by name, for gen_main.
-#main_opts also contains the args for the flags.
+#main_opts is an array of this script's flags and args for gen_main.
 declare -a main_opts=();
 
 
@@ -79,6 +81,7 @@ include(){
 	fi
 }
 
+#cat(){ while read line;do printf '%s\n' "$line";done; } #Maybe one day.
 
 [ -z "$P" ] || [ "$P" = '-' ]; P_def="$?";
 
@@ -111,7 +114,7 @@ while getopts ':vg:h:mp:s:cnd0xql:' name "$@";do
 				if [ -t 0 ];then
 					command "$EDITOR" "$ALLHEADS";
 				else
-					printf "%s -he can't be used with redirection.\n" "$0";
+					die "Your redirection would go to $EDITOR. Use stdin directly?";
 				fi
 				;;
 			s) include 'stdio' >| "$ALLHEADS" ||
@@ -119,11 +122,11 @@ while getopts ':vg:h:mp:s:cnd0xql:' name "$@";do
 			a)
 				next_opt="${!OPTIND}";
 				((++OPTIND));
-				[ -z "$next_opt" ] && die "Usage: -h a <libs>";
+				[ -z "$next_opt" ] && die "Usage: -ha my_libs";
 				IFS=',' read -a heads <<<"$next_opt";
 
-				for heads in "${heads[@]}";do
-					include "$heads" >> "$ALLHEADS" ||
+				for h in "${heads[@]}";do
+					include "$h" >> "$ALLHEADS" ||
 						die "Couldn't write to $ALLHEADS";
 				done
 				;;
@@ -172,11 +175,17 @@ done
 ##P:
 if (($P_def));then
 	: "${bin:="./$P"}";
-	COMP=("$CC" -std="$STD" $LINK "-g$G" $W "-O$O" $CEXTRA $OBJS "$P.c" -o "$P$obj_opt");
+	COMP=(
+		"$CC" -std="$STD" $LINK "-g$G" $W "-O$O"
+		$CEXTRA $OBJS "$P.c" -o "$P$obj_opt"
+	);
 else
 	: "${bin:=./a.out}";
 	#Don't include $OBJS for now. Let's see how that goes.
-	COMP=("$CC" -std="$STD" -xc - $LINK "-g$G" $W "-O$O" $CEXTRA -include "$ALLHEADS");
+	COMP=(
+		"$CC" -std="$STD" -xc - $LINK "-g$G" $W
+		"-O$O" $CEXTRA -include "$ALLHEADS"
+	);
 fi
 
 ##-v & -g:
@@ -192,7 +201,8 @@ if [ -n "$vars_opt" ];then
 fi
 
 if [ -n "$get_var_opt" ];then
-	printf '%s\n' "${get_var[*]}";
+	#The associated variable may be an array so [@] is valid here.
+	printf '%q ' "${get_var[@]}";
 	exit;
 fi
 
